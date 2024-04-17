@@ -2,6 +2,7 @@ import pandas as pd
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from itertools import combinations
+from collections import defaultdict
 
 
 class Apriori:
@@ -9,58 +10,69 @@ class Apriori:
         self.min_support = min_support
         self.min_confidence = min_confidence
         self.transactions = []
-        self.itemsets = {}
-        self.rules = []  # Initialize the rules attribute
+        self.frequent_itemsets = {}
+        self.rules = []
 
-    def load_data(self, file_path, percent=100):
+    def read_file(self, file_path, percent=100):
         df = pd.read_csv(file_path)
-        total_rows = len(df)
-        rows_to_read = int(total_rows * (percent / 100))
-        df = df.head(rows_to_read)
+        df.dropna()
+        num_rows = len(df)
+        selected_rows = int(num_rows * (percent / 100))
+        df = df.head(selected_rows)
+        df = df.groupby(['TransactionNo', 'Items']).size().reset_index(name='Count')
 
         self.transactions = df.groupby('TransactionNo')['Items'].apply(list).tolist()
 
-    def get_frequent_itemsets(self, itemset_length):
-        itemsets = {}
-        transaction_count = len(self.transactions)
-        for transaction in self.transactions:
-            for item_combo in combinations(transaction, itemset_length):
-                itemset = frozenset(item_combo)
-                itemsets[itemset] = itemsets.get(itemset, 0) + 1
+    def generate_frequent_itemsets(self, order_of_itemet):
+        num_transactions = len(self.transactions)
 
-        frequent_itemsets = {itemset: support for itemset, support in itemsets.items() if
-                             support / transaction_count >= self.min_support}
+        count_dict = defaultdict(int)
+
+        for transaction in self.transactions:
+            item_combinations = combinations(transaction, order_of_itemet)
+
+            for iteset_comination in item_combinations:
+                itemset = frozenset(iteset_comination)
+
+                count_dict[itemset] += 1
+
+        frequent_itemsets = {itemset: support for itemset, support in count_dict.items() if
+                             support / num_transactions >= self.min_support}
+
         return frequent_itemsets
 
-    def generate_all_frequent_itemsets(self):
-        itemset_length = 1
+    def update_APRRRIORY_frequent_itemsets(self):
+        itemset_order = 1
         while True:
-            frequent_itemsets = self.get_frequent_itemsets(itemset_length)
+            frequent_itemsets = self.generate_frequent_itemsets(itemset_order)
             if not frequent_itemsets:
                 break
-            self.itemsets.update(frequent_itemsets)
-            itemset_length += 1
+            self.frequent_itemsets.update(frequent_itemsets)
+            itemset_order += 1
 
-    def generate_association_rules(self):
-        for itemset, support in self.itemsets.items():
-            if len(itemset) > 1:
-                self.generate_rules_from_itemset(itemset)
-
-    def generate_rules_from_itemset(self, itemset):
+    def get_strong_association_rules(self, itemset):
         for i in range(1, len(itemset)):
-            for antecedent in combinations(itemset, i):
-                antecedent = frozenset(antecedent)
-                consequent = itemset - antecedent
-                try:
-                    confidence = self.itemsets[itemset] / self.itemsets[antecedent]
-                except KeyError:
-                    continue
-                if confidence >= self.min_confidence:
-                    self.rules.append((antecedent, consequent, confidence))
+            for precedent in combinations(itemset, i):
+                precedent = frozenset(precedent)
+                latter = itemset - precedent
+
+                given_support = self.frequent_itemsets.get(precedent, 0)
+
+                if given_support != 0:
+                    confidence = self.frequent_itemsets.get(itemset, 0) / given_support
+                    if confidence >= self.min_confidence:
+                        self.rules.append((precedent, latter, confidence))
+                else:
+                    return
+
+    def check_for_association_rules(self):
+        for itemset, support in self.frequent_itemsets.items():
+            if len(itemset) > 1:
+                self.get_strong_association_rules(itemset)
 
     def print_frequent_itemsets(self):
         output_text = "Frequent Itemsets:\n"
-        for itemset, support in self.itemsets.items():
+        for itemset, support in self.frequent_itemsets.items():
             output_text += f"{set(itemset)}: {support}\n"
         return output_text
 
@@ -75,7 +87,8 @@ class GUI(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Apriori Algorithm")
-        self.geometry("400x300")
+        self.geometry("500x400")
+        self.config(bg="lightgray")  # Set background color for the main window
 
         self.file_path = ""
         self.min_support = tk.DoubleVar()
@@ -85,46 +98,54 @@ class GUI(tk.Tk):
         self.create_widgets()
 
     def create_widgets(self):
-        tk.Label(self, text="Select Data File:").pack()
-        tk.Button(self, text="Browse", command=self.browse_file).pack()
+        label_font = ("Arial", 10)
+        entry_font = ("Arial", 10)
 
-        tk.Label(self, text="Minimum Support Count (0-1):").pack()
-        tk.Entry(self, textvariable=self.min_support).pack()
+        tk.Label(self, text="Select Data File:", bg="lightgray", fg="black", font=label_font).pack(pady=5, anchor="w")
+        tk.Button(self, text="Browse", command=self.read_file, bg="blue", fg="white", font=label_font).pack(pady=5, anchor="w")
 
-        tk.Label(self, text="Minimum Confidence Percentage (0-100):").pack()
-        tk.Entry(self, textvariable=self.min_confidence).pack()
+        tk.Label(self, text="Minimum Support Count (0-1):", bg="lightgray", fg="black", font=label_font).pack(pady=5, anchor="w")
+        tk.Entry(self, textvariable=self.min_support, bg="lightblue", fg="red", font=entry_font).pack(pady=5, anchor="w")
 
-        tk.Label(self, text="Percentage of Data to Read (0-100):").pack()
-        tk.Entry(self, textvariable=self.percent).pack()
+        tk.Label(self, text="Minimum Confidence Percentage (0-100):", bg="lightgray", fg="black",
+                 font=label_font).pack(pady=5, anchor="w")
+        tk.Entry(self, textvariable=self.min_confidence, bg="lightblue", fg="red", font=entry_font).pack(pady=5, anchor="w")
 
-        tk.Button(self, text="Run Apriori", command=self.run_apriori).pack()
+        tk.Label(self, text="Percentage of Data to Read (0-100):", bg="lightgray", fg="black",
+                 font=label_font).pack(pady=5, anchor="w")
+        tk.Entry(self, textvariable=self.percent, bg="lightblue", fg="red", font=entry_font).pack(pady=5, anchor="w")
 
-        self.output_text = tk.Text(self, height=10, width=50)
-        self.output_text.pack()
+        tk.Button(self, text="Execute", command=self.execute, bg="green", fg="white", font=label_font).pack(pady=10, anchor="w")
 
-    def browse_file(self):
+    def read_file(self):
         self.file_path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv")])
 
-    def run_apriori(self):
+    def execute(self):
         min_support = self.min_support.get()
         min_confidence = self.min_confidence.get()
         percent = self.percent.get()
 
         if not self.file_path:
-            messagebox.showerror("Error", "Please select a data file.")
+            messagebox.showerror("Error", "Select your file.")
             return
 
         apriori = Apriori(min_support, min_confidence)
-        apriori.load_data(self.file_path, percent)
-        apriori.generate_all_frequent_itemsets()
-        apriori.generate_association_rules()
+        apriori.read_file(self.file_path, percent)
+        apriori.update_APRRRIORY_frequent_itemsets()
+        apriori.check_for_association_rules()
+
+        output_window = tk.Toplevel(self)
+        output_window.title("Apriori Output")
+        output_window.geometry("500x400")
+
+        output_text = tk.Text(output_window, height=40, width=100, bg="lightblue", fg="black", font=("Arial", 10))
+        output_text.pack(pady=10)
 
         frequent_itemsets = apriori.print_frequent_itemsets()
         association_rules = apriori.print_association_rules()
 
         output = frequent_itemsets + association_rules
-        self.output_text.delete('1.0', tk.END)
-        self.output_text.insert(tk.END, output)
+        output_text.insert(tk.END, output)
 
 
 def main():
